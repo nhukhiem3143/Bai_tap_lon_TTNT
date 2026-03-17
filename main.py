@@ -12,7 +12,7 @@ from light import process_frame # Đảm bảo file light.py có hàm này
 model = YOLO("yolov10s.pt")  
 
 # 2. Cấu hình Video
-video_path = 'tr.mp4'
+video_path = 'youtube.mp4'
 cap = cv2.VideoCapture(video_path)
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
 output_video = cv2.VideoWriter('output/ket_qua.avi', fourcc, 20.0, (1020, 600))
