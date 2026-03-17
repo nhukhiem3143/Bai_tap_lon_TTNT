@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# VSCode
+.vscode/
+
+test/
+# Logs
+*.log
+*.csv
+/images
+/vehicle-detection
+# System files
+.DS_Store
+Thumbs.db
