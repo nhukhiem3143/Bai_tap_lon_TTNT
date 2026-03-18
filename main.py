@@ -1,91 +1,103 @@
 import cv2
-from ultralytics import YOLO
-import pandas as pd
-import cvzone
-import numpy as np
 import os
+import numpy as np
 from datetime import datetime
-from tracker import Tracker 
-from light import process_frame # Đảm bảo file light.py có hàm này
+from ultralytics import YOLO
+from tracker import Tracker
+from light import process_frame
 
-# 1. Khởi tạo mô hình phương tiện
-model = YOLO("yolov10s.pt")  
+model = YOLO("yolov10s.pt")        
+names = model.names
 
-# 2. Cấu hình Video
-video_path = 'youtube.mp4'
-cap = cv2.VideoCapture(video_path)
-fourcc = cv2.VideoWriter_fourcc(*'XVID')
-output_video = cv2.VideoWriter('output/ket_qua.avi', fourcc, 20.0, (1020, 600))
+tracker = Tracker()                 
+cap = cv2.VideoCapture("tr.mp4")      
 
-# 3. Đọc danh sách class COCO
-with open("coco.txt", "r") as f:
-    class_list = f.read().split("\n")
+# Tạo thư mục lưu kết quả
+os.makedirs("output", exist_ok=True)
+os.makedirs("output/vi_pham", exist_ok=True)
 
-# 4. Khởi tạo Tracker và vùng kiểm soát
-tracker = Tracker()
-violation_ids = set() 
-area = [(324, 313), (283, 374), (854, 392), (864, 322)] 
+# Cấu hình video output
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+out = cv2.VideoWriter('output/output.mp4', fourcc, 20.0, (1020, 600))
 
-# 5. Tạo thư mục lưu ảnh vi phạm theo yêu cầu: output/vi_pham
-output_dir = os.path.join('output', 'vi_pham')
-if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
+# Vùng polygon định nghĩa "vạch dừng" / khu vực cấm đi khi đèn đỏ
+area = [(324, 313), (283, 374), (854, 392), (864, 322)]
 
+# Tập hợp lưu các ID xe đã vi phạm (để không lưu ảnh nhiều lần)
+violation_ids = set()
+
+# ===== VÒNG LẶP XỬ LÝ VIDEO =====
 while True:
     ret, frame = cap.read()
-    if not ret: break
+    if not ret:
+        break
 
     frame = cv2.resize(frame, (1020, 600))
-    
-    # Bước A: Nhận diện màu đèn
-    processed_frame, detected_label = process_frame(frame)
-    detected_label = str(detected_label).upper() 
 
-    # Bước B: Phát hiện xe cộ
-    results = model(frame, conf=0.4) 
-    a = results[0].boxes.data.cpu()
-    px = pd.DataFrame(a).astype("float")
-    
-    obj_list = []
-    for index, row in px.iterrows():
-        x1, y1, x2, y2, d = int(row[0]), int(row[1]), int(row[2]), int(row[3]), int(row[5])
-        c = class_list[d]
-        if 'car' in c or 'truck' in c or 'bus' in c or 'motorcycle' in c:
-            obj_list.append([x1, y1, x2, y2])
+    # 1. Phát hiện & phân loại màu đèn giao thông
+    frame, light = process_frame(frame)
+    light = str(light).upper() if light else None
 
-    # Bước C: Tracking và kiểm tra vi phạm
-    bbox_idx = tracker.update(obj_list)
-    for bbox in bbox_idx:
-        x3, y3, x4, y4, id = bbox
-        cx, cy = (x3 + x4) // 2, (y3 + y4) // 2
-        is_inside = cv2.pointPolygonTest(np.array(area, np.int32), (cx, cy), False)
+    # 2. Phát hiện các phương tiện bằng YOLO
+    results = model(frame, conf=0.4)[0].boxes.data.cpu().numpy()
 
-        if is_inside >= 0 and detected_label == "RED":
+    detections = []
+    for r in results:
+        x1, y1, x2, y2, _, cls = r
+        cls = int(cls)
+        label = names[cls]
+
+        # Chỉ giữ các lớp là phương tiện giao thông
+        if label in ["car", "truck", "bus", "motorcycle"]:
+            detections.append([int(x1), int(y1), int(x2), int(y2), label])
+
+    # 3. Theo dõi (tracking) các phương tiện qua các frame
+    tracked = tracker.update(detections)
+
+    # Xử lý từng đối tượng đã được gán ID
+    for x1, y1, x2, y2, id, label in tracked:
+        cx, cy = (x1+x2)//2, (y1+y2)//2
+
+        # Kiểm tra tâm đối tượng có nằm trong vùng polygon cấm không
+        inside = cv2.pointPolygonTest(np.array(area, np.int32), (cx, cy), False)
+
+        # 4. Phát hiện vi phạm: nằm trong vùng + đèn đỏ
+        if inside >= 0 and light == "RED":
             if id not in violation_ids:
                 violation_ids.add(id)
-                # Lưu ảnh vào output/vi_pham
-                timestamp = datetime.now().strftime('%H-%M-%S')
-                img_name = f"ID_{id}_{timestamp}.jpg"
-                cv2.imwrite(os.path.join(output_dir, img_name), frame)
-                print(f"!!! PHÁT HIỆN VI PHẠM: Đã lưu ảnh xe ID {id} vào {output_dir}")
 
-        # Vẽ khung hiển thị
-        color = (0, 0, 255) if id in violation_ids else (0, 255, 0)
-        cv2.rectangle(frame, (x3, y3), (x4, y4), color, 2)
-        text = f'VIOLATION #{id}' if id in violation_ids else f'ID: {id}'
-        cvzone.putTextRect(frame, text, (x3, y3 - 10), 1, 1, colorR=color)
+                filename = f"output/vi_pham/{id}_{label}_{datetime.now().strftime('%H%M%S')}.jpg"
+                cv2.imwrite(filename, frame)
 
-    # Bước D: Vẽ vùng area và thông tin đèn
-    cv2.polylines(frame, [np.array(area, np.int32)], True, (255, 255, 255), 2)
-    color_map = {"RED": (0, 0, 255), "GREEN": (0, 255, 0), "YELLOW": (0, 255, 255)}
-    status_color = color_map.get(detected_label, (127, 127, 127))
-    cvzone.putTextRect(frame, f'LIGHT: {detected_label}', (750, 50), 2, 2, colorR=status_color)
-    cvzone.putTextRect(frame, f'TOTAL VIOLATIONS: {len(violation_ids)}', (30, 50), 2, 2, colorR=(0, 0, 255))
+                print(f"VI PHAM: {label} ID {id}")
 
-    output_video.write(frame)
-    cv2.imshow("Traffic Monitoring System", frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'): break
+        # Chọn màu hiển thị: đỏ nếu đã vi phạm, xanh nếu chưa
+        color = (0,0,255) if id in violation_ids else (0,255,0)
 
+        # Vẽ bounding box & ID
+        cv2.rectangle(frame, (x1,y1), (x2,y2), color, 2)
+        cv2.putText(frame, f"{label} #{id}", (x1,y1-5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+    # 5. Vẽ giao diện người dùng
+    cv2.polylines(frame, [np.array(area, np.int32)], True, (255,255,255), 2)
+
+    cv2.putText(frame, f"Den: {light}", (750,50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,255), 2)
+
+    cv2.putText(frame, f"Vi Pham: {len(violation_ids)} xe", (30,50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
+
+    # 6. Ghi frame vào video kết quả
+    out.write(frame)
+
+    # 7. Hiển thị realtime
+    cv2.imshow("He thong phat hien vi pham giao thong", frame)
+
+    if cv2.waitKey(1) == 27:    # phím ESC để thoát
+        break
+
+# ===== KẾT THÚC =====
 cap.release()
-output_video.release()
+out.release()
 cv2.destroyAllWindows()

@@ -2,78 +2,62 @@ import cv2
 import numpy as np
 
 def process_frame(frame):
-    # 1. ĐỊNH NGHĨA NGƯỠNG MÀU (HSV)
-    # Khoảng màu XANH (Green) trong không gian HSV
-    lower_range = np.array([58, 97, 222])   
-    upper_range = np.array([179, 255, 255])
+    """
+    Phát hiện và phân loại màu đèn giao thông (đỏ / xanh) trong vùng đèn tín hiệu.
     
-    # Khoảng màu ĐỎ (Red) trong không gian HSV
-    lower_range1 = np.array([0, 43, 184])   
-    upper_range1 = np.array([56,132, 255])
-
-    # 2. CHUYỂN ĐỔI KHÔNG GIAN MÀU
-    # Chuyển ảnh từ BGR (mặc định OpenCV) sang HSV
-    # HSV giúp phân tách màu sắc tốt hơn so với BGR
+    Công dụng chính:
+      - Chuyển sang không gian HSV → tạo mask cho màu đỏ và xanh
+      - Tìm contour lớn nhất (giả định là đèn)
+      - Xác định đèn là RED hay GREEN dựa trên việc mask xanh có pixel hay không
+      - Vẽ trực tiếp bounding box + nhãn lên frame
+    
+    Trả về:
+      - frame đã được vẽ annotation đèn
+      - chuỗi "RED" hoặc "GREEN" (hoặc None nếu không phát hiện)
+    
+    Lưu ý: Hàm giả định đèn nằm ở bên phải frame (cx < 915 mới xử lý)
+    """
+    # Chuyển sang không gian màu HSV để dễ tách màu
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    # 3. TẠO MASK THEO MÀU
-    # Tạo mask cho vùng màu xanh
-    mask = cv2.inRange(hsv, lower_range, upper_range)
-    
-    # Tạo mask cho vùng màu đỏ
-    mask1 = cv2.inRange(hsv, lower_range1, upper_range1)
+    # Phạm vi màu xanh lá (có thể cần điều chỉnh tùy camera/video)
+    mask_g = cv2.inRange(hsv, (58, 97, 222), (179, 255, 255))
+    # Phạm vi màu đỏ (phần dưới của hue)
+    mask_r = cv2.inRange(hsv, (0, 43, 184), (56, 132, 255))
 
-    # 4. KẾT HỢP CÁC MASK
-    # Gộp 2 mask (đỏ + xanh) thành 1 mask chung
-    combined_mask = cv2.bitwise_or(mask, mask1)
+    # Kết hợp hai mask
+    mask = cv2.bitwise_or(mask_g, mask_r)
 
-    # 5. NHỊ PHÂN HÓA (LÀM SẠCH MASK)
-    # Chuyển mask về dạng nhị phân rõ ràng (0 hoặc 255)
-    _, final_mask = cv2.threshold(combined_mask, 254, 255, cv2.THRESH_BINARY)
+    # Tìm các vùng liên thông (contour)
+    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Biến lưu kết quả nhận diện cuối cùng
-    detected_label = None
-
-    # 6. TÌM CONTOUR (ĐỐI TƯỢNG)
-    cnts, _ = cv2.findContours(final_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    label_out = None
 
     for c in cnts:
-        if cv2.contourArea(c) > 50:
-            
-            # Lấy hình chữ nhật bao quanh contour
-            x, y, w, h = cv2.boundingRect(c)
-            # 7. TÍNH TÂM ĐỐI TƯỢNG
-            
-            cx = x + w // 2   # Tọa độ x của tâm
-            cy = y + h // 2   # Tọa độ y của tâm
-            
-            #  giới hạn khu vực đèn
-            if cx < 915:
-             
-                # Nếu trong vùng này có pixel màu xanh
-                if cv2.countNonZero(mask[y:y+h, x:x+w]) > 0:
-                    color = (0, 255, 0)      # Màu vẽ khung (xanh)
-                    text_color = (0, 255, 0)
-                    label = "GREEN"
-                
-                # Nếu có pixel màu đỏ
-                elif cv2.countNonZero(mask1[y:y+h, x:x+w]) > 0:
-                    color = (0, 0, 255)      # Màu vẽ khung (đỏ)
-                    text_color = (0, 0, 255)
-                    label = "RED"
-            else:
-                continue
-            detected_label = label 
+        # Bỏ qua các vùng quá nhỏ (nhiễu)
+        if cv2.contourArea(c) < 50:
+            continue
 
-            # 9. VẼ KẾT QUẢ LÊN ẢNH
-            # Vẽ bounding box
-            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                
-            # Vẽ tâm đối tượng (chấm xanh dương)
-            cv2.circle(frame, (cx, cy), 1, (255, 0, 0), -1)
-            
-            # Hiển thị nhãn (RED / GREEN)
-            cv2.putText(frame, label, (x, y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 2)
-            
-    return frame, detected_label
+        x, y, w, h = cv2.boundingRect(c)
+        cx = x + w // 2
+
+        # Bỏ qua các vùng nằm quá bên phải (ngoài vùng đèn giao thông)
+        if cx >= 915:
+            continue
+
+        # Quyết định màu đèn: ưu tiên kiểm tra mask xanh
+        if cv2.countNonZero(mask_g[y:y+h, x:x+w]) > 0:
+            label = "GREEN"
+            color = (0, 255, 0)
+        else:
+            label = "RED"
+            color = (0, 0, 255)
+
+        label_out = label
+
+        # Vẽ trực tiếp lên frame để debug / hiển thị
+        cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
+        cv2.putText(frame, label, (x, y-5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+    return frame, label_out

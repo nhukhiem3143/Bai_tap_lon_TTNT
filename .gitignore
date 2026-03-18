@@ -14,7 +14,6 @@ test/
 # Logs
 *.log
 *.csv
-/images
 /vehicle-detection
 # System files
 .DS_Store

@@ -1,64 +1,156 @@
-# 🚦 Hệ Thống Giám Sát Giao Thông – Traffic Monitoring System
+# 🚦 Hệ Thống Phát Hiện Vi Phạm Giao Thông
 
-Hệ thống phát hiện xe vượt đèn đỏ sử dụng YOLOv10, OpenCV và thuật toán tracking tùy chỉnh.
+> Phát hiện xe vượt đèn đỏ tự động bằng **YOLOv10 + Custom Tracker + Phân tích đèn HSV**
 
 ---
 
-## 📁 Cấu Trúc Dự Án
+## 📌 Demo
+
+| Phát hiện xe | Xe vi phạm (đèn đỏ) |
+|---|---|
+| ![bbox](images/sample_bbox.jpg) | ![random](images/vi_pham.png) |
+
+---
+
+## 🗂️ Cấu Trúc Project
 
 ```
-project/
-│
-├── train_xe.ipynb       # Notebook huấn luyện mô hình (chạy trên Google Colab)
-├── main.py              # File chạy chính – phát hiện & ghi nhận vi phạm
-├── light.py             # Module nhận diện màu đèn giao thông (HSV)
-├── tracker.py           # Module theo dõi đối tượng (Euclidean Tracker)
-├── coco.txt             # Danh sách 80 nhãn lớp COCO
-│
-├── youtube.mp4          # ← Video đầu vào (bạn tự chuẩn bị)
-├── yolov10s.pt          # ← Trọng số YOLOv10 (tải về hoặc dùng model tự train)
-│
-└── output/
-    ├── ket_qua.avi      # Video kết quả xuất ra
-    └── vi_pham/         # Ảnh chụp màn hình xe vi phạm
-        └── ID_<id>_<timestamp>.jpg
+traffic_violation/
+├── main.py              # Pipeline chính
+├── light.py             # Nhận diện đèn tín hiệu (HSV)
+├── tracker.py           # Tracking xe theo ID
+├── yolov10s.pt          # Model YOLO (tự động tải)
+├── tr.mp4               # Video đầu vào
+├── output/
+│   ├── output.mp4       # Video kết quả
+│   └── vi_pham/         # Ảnh chụp xe vi phạm
+├── vehicle-detection/   # Dataset (nếu train lại)
+│   ├── train/images/
+│   ├── train/labels/
+│   ├── valid/
+│   ├── test/
+│   └── data.yaml
+├── so_do.ipynb          # EDA & phân tích dataset
+└── train_xe.ipynb       # Huấn luyện model (Google Colab)
 ```
 
 ---
 
-## 🖥️ Yêu Cầu Môi Trường
+## ⚙️ Cài Đặt
 
-| Thư viện       | Phiên bản khuyến nghị |
-|----------------|-----------------------|
-| Python         | 3.9 – 3.11            |
-| ultralytics    | ≥ 8.0                 |
-| opencv-python  | ≥ 4.8                 |
-| cvzone         | ≥ 1.6                 |
-| pandas         | ≥ 1.5                 |
-| numpy          | ≥ 1.24                |
-
----
-
-## 🔧 BƯỚC 1 – Cài Đặt Môi Trường
+**Yêu cầu:** Python 3.9–3.11
 
 ```bash
-# Tạo môi trường ảo (khuyến nghị)
-python -m venv venv
-source venv/bin/activate        # Linux/macOS
-venv\Scripts\activate           # Windows
-
-# Cài đặt các thư viện
-pip install ultralytics opencv-python cvzone pandas numpy
+pip install ultralytics opencv-python numpy pandas matplotlib seaborn
 ```
+
+Hoặc dùng `requirements.txt`:
+
+```bash
+pip install -r requirements.txt
+```
+
+<details>
+<summary>Nội dung requirements.txt</summary>
+
+```
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+```
+
+</details>
 
 ---
 
-## 🏋️ BƯỚC 2 – Huấn Luyện Mô Hình (Google Colab)
+## 🚀 Chạy Chương Trình
 
-> **Lưu ý:** Bước này chỉ cần thực hiện nếu bạn muốn tự huấn luyện mô hình với dataset riêng.  
-> Bạn có thể **bỏ qua** và dùng thẳng `yolov10s.pt` từ [Ultralytics](https://github.com/THU-MIG/yolov10).
+### 1. Chuẩn bị
 
-### 2.1 Chuẩn Bị Dataset
+- Đặt file video vào thư mục gốc, đặt tên là `tr.mp4`
+- Model `yolov10s.pt` sẽ **tự động tải** khi chạy lần đầu
+
+### 2. Chạy
+
+```bash
+python main.py
+```
+
+### 3. Kết quả
+
+| Output | Mô tả |
+|---|---|
+| `output/output.mp4` | Video đã xử lý với bounding box và trạng thái đèn |
+| `output/vi_pham/*.jpg` | Ảnh chụp frame khi phát hiện vi phạm |
+| Console | In `VI PHAM: car ID 5` mỗi khi có xe vi phạm |
+
+> Nhấn **ESC** để dừng chương trình.
+
+---
+
+## 🔧 Cấu Hình
+
+### Vùng kiểm soát vi phạm (`main.py`)
+
+```python
+area = [(324, 313), (283, 374), (854, 392), (864, 322)]
+```
+
+Tọa độ polygon trên frame **1020×600**. Dùng script sau để xác định tọa độ theo camera thực tế:
+
+```python
+import cv2
+img = cv2.imread('frame_mau.jpg')
+def click(event, x, y, flags, param):
+    if event == cv2.EVENT_LBUTTONDOWN:
+        print(f'({x}, {y})')
+cv2.namedWindow('img')
+cv2.setMouseCallback('img', click)
+cv2.imshow('img', img); cv2.waitKey(0)
+```
+
+### Ngưỡng nhận diện đèn (`light.py`)
+
+```python
+mask_g = cv2.inRange(hsv, (58, 97, 222), (179, 255, 255))   # Xanh
+mask_r = cv2.inRange(hsv, (0, 43, 184),  (56, 132, 255))    # Đỏ
+```
+
+Điều chỉnh giá trị HSV nếu camera có ánh sáng khác.
+
+### Tracker (`tracker.py`)
+
+```python
+tracker = Tracker(max_dist=70, max_disappeared=15)
+```
+
+| Tham số | Ý nghĩa | Điều chỉnh khi |
+|---|---|---|
+| `max_dist` | Khoảng cách tối đa (px) để ghép ID | Xe di chuyển nhanh → tăng lên |
+| `max_disappeared` | Số frame mất trước khi xóa ID | Xe hay bị che khuất → tăng lên |
+
+---
+
+## 🧠 Huấn Luyện Model (Tùy Chọn)
+
+### Bước 1 — Phân tích dataset
+
+Mở `so_do.ipynb` để kiểm tra dataset:
+
+```
+✅ Phân phối class
+✅ Mẫu ảnh + bounding box
+✅ Ma trận tương quan
+✅ Kiểm tra label bị thiếu
+✅ Thử augmentation (flip, rotate)
+```
+
+### Bước 2 — Train trên Google Colab
+
+### 1 Chuẩn Bị Dataset
 
 Cấu trúc dataset cần có dạng:
 
@@ -80,195 +172,142 @@ Mỗi file nhãn `.txt` theo định dạng YOLO:
 <class_id> <x_center> <y_center> <width> <height>
 ```
 
-### 2.2 Upload Dataset Lên Google Drive
+### 2 Upload Dataset Lên Google Drive
 
 Nén toàn bộ dataset thành file `train_xe.zip` và upload vào:
 ```
 Google Drive > My Drive > Colab Notebooks > train_xe.zip
 ```
 
-### 2.3 Chạy Notebook Trên Google Colab
-
-Mở file `train_xe.ipynb` trên Google Colab và chạy lần lượt từng cell:
-
-| Cell | Mô tả |
-|------|-------|
-| **Cell 1** | Cài đặt thư viện `ultralytics` |
-| **Cell 2** | Mount Google Drive |
-| **Cell 3** | Giải nén dataset vào `/content/dataset` |
-| **Cell 4** | Tạo file `data.yaml` cấu hình dataset |
-| **Cell 5** | **Bắt đầu huấn luyện** – YOLOv10n, 50 epochs, imgsz=640 |
-| **Cell 6** | Chuẩn hóa class ID về `0` trong tất cả file nhãn |
-| **Cell 7** | Export model sang định dạng ONNX *(tùy chọn)* |
-| **Cell 8** | Tải file `best.pt` về máy |
-
-### 2.4 Lệnh Huấn Luyện (Chi Tiết)
-
-```bash
-# Lệnh được chạy tự động trong Cell 5
-yolo detect train \
-  data=/content/dataset/data.yaml \
-  model=yolov10n.pt \
-  epochs=50 \
-  imgsz=640
-```
-
-Kết quả lưu tại: `runs/detect/train/weights/best.pt`
-
-### 2.5 Tải Model Về Máy
+Mở `train_xe.ipynb` trên Colab, chạy tuần tự:
 
 ```python
-# Cell cuối trong notebook
+# 1. Cài thư viện
+!pip install ultralytics
+
+# 2. Mount Drive và giải nén dataset
+from google.colab import drive
+drive.mount('/content/drive')
+!unzip /content/drive/MyDrive/.../train_xe.zip -d /content/dataset
+
+# 3. Tạo data.yaml (đã có sẵn trong notebook)
+
+# 4. Train
+!yolo detect train data=/content/dataset/data.yaml model=yolov10n.pt epochs=50 imgsz=640
+
+# 5. Tải model về
 from google.colab import files
 files.download('/content/runs/detect/train2/weights/best.pt')
 ```
 
-Sau khi tải về, **đổi tên** thành `yolov10s.pt` (hoặc cập nhật đường dẫn trong `main.py`).
-
----
-
-## ▶️ BƯỚC 3 – Chạy Hệ Thống
-
-### 3.1 Chuẩn Bị File Đầu Vào
-
-Đảm bảo các file sau nằm cùng thư mục với `main.py`:
-
-```
-✅ youtube.mp4      – Video giao thông cần phân tích
-✅ yolov10s.pt      – File trọng số mô hình YOLO
-✅ coco.txt         – Danh sách class (đã có sẵn)
-✅ light.py         – Module đèn (đã có sẵn)
-✅ tracker.py       – Module tracker (đã có sẵn)
-```
-
-Tạo thư mục output (nếu chưa có):
+### Bước 3 — Dùng model vừa train
 
 ```bash
-mkdir -p output/vi_pham
+# Đặt best.pt vào thư mục gốc, đổi tên
+mv best.pt xe.pt
 ```
 
-### 3.2 Chạy File Chính
+Sửa dòng trong `main.py`:
 
-```bash
-python main.py
+```python
+model = YOLO("xe.pt")   # thay vì yolov10s.pt
 ```
 
-### 3.3 Điều Khiển Khi Chạy
+### Kết quả huấn luyện (50 epochs)
 
-| Phím | Chức năng |
-|------|-----------|
-| `Q`  | Thoát chương trình |
+| Metric | Train | Validation |
+|---|---|---|
+| Precision | ~0.82 | ~0.80 |
+| Recall | ~0.67 | ~0.65 |
+| Box Loss | ~1.18 | ~1.47 |
+
+<details>
+<summary>Xem learning curves</summary>
+
+**Loss Curve**
+
+![loss](images/loss_curve.png)
+
+**Precision & Recall**
+
+![pr](images/pr_curve.png)
+
+</details>
 
 ---
 
-## ⚙️ Cấu Hình & Tuỳ Chỉnh
+## 🧪 Đánh Giá Model
 
-### Thay Đổi Video Đầu Vào
-
-Mở `main.py`, sửa dòng:
+### Test nhanh một ảnh
 
 ```python
-video_path = 'youtube.mp4'   # ← Thay bằng đường dẫn video của bạn
+from ultralytics import YOLO
+model = YOLO('xe.pt')
+results = model.predict('test_image.jpg', conf=0.4, save=True)
 ```
 
-### Thay Đổi Mô Hình YOLO
+### Đánh giá trên tập test
 
 ```python
-model = YOLO("yolov10s.pt")  # ← Thay bằng tên file .pt của bạn
+from ultralytics import YOLO
+model = YOLO('xe.pt')
+
+results = model.val(
+    data='vehicle-detection/data.yaml',
+    split='test',
+    conf=0.3,
+    single_cls=True   # Fix lỗi mismatch class
+)
+
+print(f"Precision : {results.box.mp:.3f}")
+print(f"Recall    : {results.box.mr:.3f}")
+print(f"mAP50     : {results.box.map50:.3f}")
+print(f"mAP50-95  : {results.box.map:.3f}")
 ```
 
-### Điều Chỉnh Vùng Kiểm Soát (Khu Vực Giao Lộ)
-
-Trong `main.py`, thay đổi tọa độ polygon `area` cho phù hợp với video:
-
-```python
-# Mỗi tuple là (x, y) một đỉnh của vùng kiểm soát
-area = [(324, 313), (283, 374), (854, 392), (864, 322)]
-```
-
-> **Mẹo:** Dùng công cụ [CVAT](https://app.cvat.ai) hoặc vẽ thử trực tiếp bằng OpenCV để xác định tọa độ chính xác.
-
-### Điều Chỉnh Ngưỡng Màu Đèn
-
-Mở `light.py` để chỉnh khoảng HSV nếu màu đèn trong video khác:
-
-```python
-# Màu XANH (Green)
-lower_range = np.array([58, 97, 222])
-upper_range = np.array([179, 255, 255])
-
-# Màu ĐỎ (Red)
-lower_range1 = np.array([0, 43, 184])
-upper_range1 = np.array([56, 132, 255])
-```
-
-> **Mẹo:** Dùng script HSV picker của OpenCV để lấy đúng ngưỡng cho video của bạn.
-
-### Điều Chỉnh Ngưỡng Tracking
-
-Trong `tracker.py`, thay đổi khoảng cách Euclidean để nhận diện lại đối tượng:
-
-```python
-if dist < 35:   # ← Tăng nếu xe di chuyển nhanh, giảm nếu bị nhầm lẫn
-```
+> ⚠️ Dùng `single_cls=True` khi model chỉ có 1 class nhưng `data.yaml` có nhiều class.
 
 ---
 
-## 📤 Kết Quả Đầu Ra
-
-Sau khi chạy xong, kết quả được lưu tại:
+## 🏗️ Kiến Trúc Hệ Thống
 
 ```
-output/
-├── ket_qua.avi              # Toàn bộ video đã xử lý
-└── vi_pham/
-    ├── ID_3_14-22-05.jpg    # Ảnh xe vi phạm, ID=3, lúc 14:22:05
-    ├── ID_7_14-22-18.jpg
-    └── ...
+Video Input (tr.mp4)
+        │
+        ▼
+┌───────────────┐     ┌─────────────────┐
+│   light.py    │     │   YOLOv10       │
+│  (HSV color)  │     │  (Detection)    │
+│  → GREEN/RED  │     │  → bboxes       │
+└──────┬────────┘     └────────┬────────┘
+       │                       │
+       └──────────┬────────────┘
+                  ▼
+         ┌────────────────┐
+         │   tracker.py   │
+         │  (ID tracking) │
+         └────────┬───────┘
+                  │
+                  ▼
+        ┌─────────────────┐
+        │  Vi phạm check  │
+        │  inside area    │
+        │  + light == RED │
+        └────────┬────────┘
+                 │
+        ┌────────┴────────┐
+        │                 │
+   Lưu ảnh          Ghi video
+  vi_pham/         output.mp4
 ```
 
-Trên màn hình hiển thị:
-- **Khung xanh**: Xe đang di chuyển bình thường
-- **Khung đỏ + nhãn `VIOLATION #ID`**: Xe vi phạm đèn đỏ
-- **Góc trái**: Tổng số vi phạm (`TOTAL VIOLATIONS`)
-- **Góc phải**: Trạng thái đèn hiện tại (`LIGHT: RED / GREEN`)
 
----
-
-## 🐛 Xử Lý Lỗi Thường Gặp
-
-| Lỗi | Nguyên nhân | Cách khắc phục |
-|-----|-------------|----------------|
-| `ModuleNotFoundError: cvzone` | Thiếu thư viện | `pip install cvzone` |
-| `Error: video not found` | Sai đường dẫn video | Kiểm tra lại `video_path` trong `main.py` |
-| Không phát hiện đèn | Ngưỡng HSV không khớp | Điều chỉnh `lower_range` / `upper_range` trong `light.py` |
-| Xe bị mất tracking | Ngưỡng khoảng cách quá nhỏ | Tăng giá trị `dist < 35` trong `tracker.py` |
-| `CUDA out of memory` | GPU không đủ VRAM | Giảm `conf` hoặc dùng CPU: `model = YOLO(..., device='cpu')` |
-
----
-
-## 📌 Sơ Đồ Luồng Hoạt Động
+## 📋 Checklist Chạy Nhanh
 
 ```
-Video Frame
-    │
-    ├──► light.py         → Nhận diện màu đèn (RED / GREEN)
-    │
-    ├──► YOLOv10          → Phát hiện xe (car, truck, bus, motorcycle)
-    │
-    ├──► tracker.py       → Gán ID và theo dõi từng xe
-    │
-    └──► Kiểm tra vi phạm:
-             Xe trong vùng area  +  Đèn RED
-                     │
-                     ▼
-             Lưu ảnh vi phạm → output/vi_pham/
-             Ghi video kết quả → output/ket_qua.avi
+[ ] pip install ultralytics opencv-python numpy
+[ ] Đặt video tr.mp4 vào thư mục gốc
+[ ] python main.py
+[ ] Xem output/output.mp4
+[ ] Xem ảnh vi phạm trong output/vi_pham/
 ```
-
----
-
-## 📄 Giấy Phép
-
-Dự án sử dụng cho mục đích học tập và nghiên cứu.  
-Model YOLOv10 thuộc bản quyền của [THU-MIG](https://github.com/THU-MIG/yolov10) – AGPL-3.0 License.
